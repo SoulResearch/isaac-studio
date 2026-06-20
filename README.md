@@ -1,103 +1,184 @@
 # isaac-studio
 
-A composable harness for producing cinematic videos of humanoid robots walking
-in Isaac Sim, using NVIDIA's built-in validated locomotion policy. Inference
-only — no training. Built to run on the cheapest Brev L40S instance.
+A composable harness for producing cinematic videos of humanoid robots in
+NVIDIA Isaac Sim, running on cheap, ephemeral NVIDIA Brev GPU instances.
+Inference only — no training. Uses NVIDIA's built-in, validated H1 locomotion
+policy plus procedural, Python-defined environments.
 
-## The idea
+---
 
-Four swappable layers snap together like Lego:
+## Design principle: everything is reproducible from scratch
 
-- **environments/** — the world (clean studio, procedural office, ...)
-- **robots/** — robot + policy (H1 with NVIDIA's validated flat-terrain policy)
+Brev instances here are **ephemeral** — they get killed completely, not paused.
+Every session starts from nothing. Therefore the **GitHub repo is the only
+durable artifact**; the instance is disposable. The whole environment is
+rebuilt on each fresh instance by one script. Nothing important lives only on
+an instance.
+
+What this means in practice:
+- Code lives on GitHub (and your Mac). Never only on Brev.
+- Big binaries (USD assets, policies, MP4 outputs) are NOT in git (see
+  `.gitignore`); they're regenerated or pulled on demand.
+- A cold start is one command and ~14 minutes, mostly the Isaac Sim image pull.
+
+---
+
+## The four Lego layers
+
+- **environments/** — the world (procedural, Python-defined; e.g. `living_room.py`)
+- **robots/** — robot + policy (`h1_policy.py` wraps NVIDIA's validated H1 policy)
 - **cameras/** — cinematic camera rigs with named presets
-- **core/** — the engine that boots the sim, runs inference, records MP4
+- **core/** — the engine: boots Isaac Sim, runs inference, records MP4
 
-A **shot** (in `shots/`) is one short Python file that composes these into one
-video. New video = new shot file. The engine in `core/` never changes.
+A **shot** (`shots/`) is one short Python file composing these into one video.
 
-## Layout
+---
+
+## Repository layout
 
 ```
 isaac-studio/
-├── bootstrap/setup_brev.sh     # one-time container + Isaac Lab setup
+├── bootstrap/
+│   ├── coldstart.sh        # ONE-COMMAND cold start (run on the Brev host)
+│   ├── run_container.sh    # just the docker run (host)
+│   └── setup_brev.sh       # container-side: tools + deps + verify
 ├── core/
-│   ├── stage.py                # boots SimulationApp, owns lifecycle
-│   ├── recorder.py             # frames -> MP4 in the mounted folder
-│   └── runner.py               # orchestrates a shot; multi-camera per boot
+│   ├── stage.py            # boots SimulationApp, owns lifecycle
+│   ├── recorder.py         # frames -> MP4 in the mounted folder
+│   └── runner.py           # orchestrates a shot; multi-camera per boot
 ├── robots/
-│   ├── base_robot.py           # interface for any robot/policy
-│   └── h1_policy.py            # NVIDIA built-in validated H1 policy
+│   ├── base_robot.py       # interface for any robot/policy
+│   └── h1_policy.py        # NVIDIA built-in validated H1 policy
 ├── environments/
-│   ├── studio.py               # clean stage + cinematic 3-point lighting
-│   ├── office.py               # procedural office (walls, desks)
-│   └── living_room.py          # warm procedural living room set
-├── cameras/rigs.py             # CameraRig + presets
+│   ├── living_room.py      # golden-hour living room (+ standalone preview)
+│   ├── studio.py           # clean stage + 3-point lighting
+│   ├── office.py           # procedural office
+│   └── README.md           # how to preview an environment
+├── cameras/rigs.py         # CameraRig + cinematic presets
 └── shots/
-    ├── h1_walk_studio.py       # H1 walks 1m, three-quarter cam
-    └── h1_walk_multiangle.py   # same walk, 3 angles, one boot
+    ├── h1_walk_studio.py
+    └── h1_walk_multiangle.py
 ```
 
-## Workflow (three locations)
+---
 
-- **Local Mac** — edit shot files / modules, `git push`, receive MP4s.
-- **GitHub** — holds the code (not the big USD/policy/MP4 binaries; see .gitignore).
-- **Brev container** — `git pull`, run a shot, MP4 lands in the mounted folder.
+## Prerequisites
 
-### One-time Brev setup
+- A Brev account and the `brev` CLI installed on your Mac (`brev login`).
+- This repo pushed to GitHub (it is).
+- A fresh Brev GPU instance (cheapest L40S is fine). Note its name from
+  `brev ls` — used below as `<instance>`.
 
-Start the persistent container as root (so apt/git work, survives `exit`):
+---
+
+## Cold start (the whole thing, one command)
+
+### 1. Get onto the fresh Brev host (from your Mac)
 
 ```bash
-docker run --name isaac-sim -u root --entrypoint bash -d -it --gpus all \
-  -e "ACCEPT_EULA=Y" -e "PRIVACY_CONSENT=Y" --network=host \
-  -v ~/docker/isaac-sim/cache/main:/isaac-sim/.cache:rw \
-  -v ~/docker/isaac-sim/cache/computecache:/isaac-sim/.nv/ComputeCache:rw \
-  -v ~/docker/isaac-sim/logs:/isaac-sim/.nvidia-omniverse/logs:rw \
-  -v ~/docker/isaac-sim/config:/isaac-sim/.nvidia-omniverse/config:rw \
-  -v ~/docker/isaac-sim/data:/isaac-sim/Documents:rw \
-  nvcr.io/nvidia/isaac-sim:5.1.0
+brev ls                        # find your instance name
+brev shell <instance>          # land on the host as shadeform@shadecloud
+```
 
+### 2. Run the one-command cold start (on the Brev host)
+
+Replace `<you>/<repo>` with your GitHub path. This pulls the Isaac Sim image,
+starts the container, installs system tools, clones the repo, installs the MP4
+encoder, and verifies Isaac Sim + the H1 policy:
+
+```bash
+curl -sSL https://raw.githubusercontent.com/<you>/<repo>/main/bootstrap/coldstart.sh \
+  | bash -s -- https://github.com/<you>/<repo>.git
+```
+
+Expect ~14 minutes the first time (≈12 is the 20GB image pull). You're looking
+for `ISAAC SIM OK ...` and `H1 POLICY EXTENSION OK` near the end.
+
+### 3. Enter the container and render
+
+```bash
 docker exec -it isaac-sim bash
-cd /isaac-sim && git clone <your-fork-or-repo-url> isaac-studio
+cd /isaac-sim/isaac-studio
+/isaac-sim/python.sh environments/living_room.py
+```
+
+### 4. Pull outputs to your Mac (in a NEW local Mac terminal tab)
+
+```bash
+brev cp <instance>:~/docker/isaac-sim/data/living_room_preview_wide.png ~/Desktop/
+open ~/Desktop/living_room_preview_wide.png
+```
+
+---
+
+## Manual cold start (fallback if you don't want the curl one-liner)
+
+On the Brev host:
+
+```bash
+# 1. start the container (creates mounts + docker run)
+bash <(curl -sSL https://raw.githubusercontent.com/<you>/<repo>/main/bootstrap/run_container.sh)
+
+# 2. enter it
+docker exec -it isaac-sim bash
+
+# 3. inside the container: install git, clone, run setup
+apt-get update && apt-get install -y git ca-certificates
+cd /isaac-sim && git clone https://github.com/<you>/<repo>.git isaac-studio
 cd isaac-studio && bash bootstrap/setup_brev.sh
 ```
 
-### Run a shot
+---
 
-```bash
-cd /isaac-sim/isaac-studio
-/isaac-sim/python.sh shots/h1_walk_studio.py
-```
+## Critical facts about this container (the gotchas that waste hours)
 
-### Pull the video to your Mac
+- **No bare `python`.** Python is `/isaac-sim/python.sh` (Python 3.11).
+- **No bare `pip`.** Pip is `/isaac-sim/python.sh -m pip`.
+- **`pxr` / USD / isaac modules import ONLY after `SimulationApp()` boots.**
+  A bare `python.sh -c "from pxr import Usd"` will ALWAYS fail — that's normal,
+  not a broken install. Boot the app first, then import.
+- **A fresh container is a bare Ubuntu base** — no git/curl/wget/unzip/vim.
+  `setup_brev.sh` installs them; don't assume they're present.
+- **The mount bridge:** the container's `/isaac-sim/Documents` is the host's
+  `~/docker/isaac-sim/data`. That mount is the ONLY way files cross from the
+  container to where `brev cp` (run on your Mac) can reach them. Anything in
+  container-only paths must be copied into `/isaac-sim/Documents` first.
+- **Run the container as `-u root`** (apt needs root) and detached with
+  `-d -it` and NO `--rm` (so `exit` doesn't delete it).
+- **A segfault after work completes** (after the `DONE`/`[preview] DONE` line)
+  is the harmless container shutdown crash. Ignore it; outputs are already
+  written.
 
-```bash
-# from your LOCAL Mac terminal
-brev cp isaac-sim-g1:~/docker/isaac-sim/data/h1_walk_studio.mp4 ~/Desktop/h1_walk_studio.mp4
-open ~/Desktop/h1_walk_studio.mp4
-```
+---
 
-## Making a new video
+## What the bootstrap scripts do (and don't)
 
-Copy a shot file and change the composition:
+`coldstart.sh` + `setup_brev.sh` get you a **working Brev + Isaac Sim
+configuration**: container running, system tools present, MP4 encoder
+installed, Isaac Sim verified to boot, H1 policy verified to import, repo
+cloned. That is the platform.
 
-```python
-env = OfficeEnvironment()                       # swap the world
-robot = H1Robot(); robot.command(walk_forward=2.0, speed=1.0)
-camera = CameraRig.preset("hero_front", target=(1.0, 0, 1.0))
-Runner(stage, env, robot).record(camera, "my_new_shot.mp4", duration_s=10)
-```
+They do NOT guarantee every line of application code runs first try against
+your exact Isaac Sim point release — the environment/robot code was written
+against the documented APIs. If a render throws, it's almost always a small,
+isolated API mismatch in one file; capture the traceback and fix that line.
 
-## Notes / honest caveats
+Isaac Lab is intentionally NOT installed — it was only needed for training, and
+we use NVIDIA's built-in H1 policy now. This is what trims the cold start.
 
-- **Policy:** NVIDIA's built-in `H1FlatTerrainPolicy`. Validated, no training,
-  no checkpoint-mismatch risk. It only does velocity-commanded flat walking;
-  stairs/manipulation would need a different policy (a future Lego piece).
-- **Class/method names** in `robots/h1_policy.py` follow the Isaac Sim 5.1
-  example extension. If a future Isaac Sim release renames them, only that one
-  file needs updating.
-- **Boot cost:** every run boots SimulationApp (~2 min). Use `render_multi()`
-  to record several camera angles per boot.
-- **Compute:** single robot + single camera inference is light; fine on the
-  cheapest L40S. Keep environments primitive to stay within disk limits.
+---
+
+## Making a new video / environment
+
+- New environment: copy `environments/living_room.py`, edit geometry/materials,
+  keep the standalone preview block to render stills.
+- New video: copy a file in `shots/`, swap the env / robot command / camera.
+- Preview any environment: see `environments/README.md` for the full sequence.
+
+---
+
+## Cost note
+
+Single robot + single camera inference is light; fine on the cheapest L40S.
+The only meaningful per-run cost is the ~2 min SimulationApp boot — use
+`Runner.render_multi()` to capture several camera angles in one boot.

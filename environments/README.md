@@ -167,4 +167,4 @@ open ~/Desktop/living_room_preview_wide.png
 | Python error during build | Likely a small USD/light API mismatch for your Isaac Sim version. Copy the full traceback and we fix the one line in `living_room.py`. |
 | No `.png` files written | Check the run reached `[preview] DONE`. If it errored before that, see the traceback. |
 | `brev: command not found` | You're running `brev cp` on the Brev host, not your Mac. Open a fresh local Mac terminal. |
-| PNG looks black / underexposed | Lighting intensities need tuning — tell me and I'll adjust the light values in `_build_lighting()`. |
+| PNG looks black / underexposed | Lighting intensities need tuning — tell me and I'll adjust the light values in `_build_lighting()`. |  
