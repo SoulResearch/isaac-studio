@@ -16,7 +16,7 @@ rebuilt on each fresh instance by one script. Nothing important lives only on
 an instance.
 
 What this means in practice:
-- Code lives on GitHub (and your Mac). Never only on Brev.
+- Code lives on GitHub (and your device). Never only on Brev.
 - Big binaries (USD assets, policies, MP4 outputs) are NOT in git (see
   `.gitignore`); they're regenerated or pulled on demand.
 - A cold start is one command and ~14 minutes, mostly the Isaac Sim image pull.
@@ -64,7 +64,7 @@ isaac-studio/
 
 ## Prerequisites
 
-- A Brev account and the `brev` CLI installed on your Mac (`brev login`).
+- A Brev account and the `brev` CLI installed on your device (`brev login`).
 - This repo pushed to GitHub (it is).
 - A fresh Brev GPU instance (cheapest L40S is fine). Note its name from
   `brev ls` — used below as `<instance>`.
@@ -73,7 +73,7 @@ isaac-studio/
 
 ## Cold start (the whole thing, one command)
 
-### 1. Get onto the fresh Brev host (from your Mac)
+### 1. Get onto the fresh Brev host (from your device)
 
 ```bash
 brev ls                        # find your instance name
@@ -82,13 +82,13 @@ brev shell <instance>          # land on the host as shadeform@shadecloud
 
 ### 2. Run the one-command cold start (on the Brev host)
 
-Replace `<you>/<repo>` with your GitHub path. This pulls the Isaac Sim image,
-starts the container, installs system tools, clones the repo, installs the MP4
-encoder, and verifies Isaac Sim + the H1 policy:
+This pulls the Isaac Sim image, starts the container, installs system tools,
+clones the repo, installs the MP4 encoder, and verifies Isaac Sim + the H1
+policy:
 
 ```bash
-curl -sSL https://raw.githubusercontent.com/<you>/<repo>/main/bootstrap/coldstart.sh \
-  | bash -s -- https://github.com/<you>/<repo>.git
+curl -sSL https://raw.githubusercontent.com/SoulResearch/isaac-studio/main/bootstrap/coldstart.sh \
+  | bash -s -- https://github.com/SoulResearch/isaac-studio.git
 ```
 
 Expect ~14 minutes the first time (≈12 is the 20GB image pull). You're looking
@@ -102,7 +102,7 @@ cd /isaac-sim/isaac-studio
 /isaac-sim/python.sh environments/living_room.py
 ```
 
-### 4. Pull outputs to your Mac (in a NEW local Mac terminal tab)
+### 4. Pull outputs to your device (in a NEW local terminal tab on your device)
 
 ```bash
 brev cp <instance>:~/docker/isaac-sim/data/living_room_preview_wide.png ~/Desktop/
@@ -117,14 +117,14 @@ On the Brev host:
 
 ```bash
 # 1. start the container (creates mounts + docker run)
-bash <(curl -sSL https://raw.githubusercontent.com/<you>/<repo>/main/bootstrap/run_container.sh)
+bash <(curl -sSL https://raw.githubusercontent.com/SoulResearch/isaac-studio/main/bootstrap/run_container.sh)
 
 # 2. enter it
 docker exec -it isaac-sim bash
 
 # 3. inside the container: install git, clone, run setup
 apt-get update && apt-get install -y git ca-certificates
-cd /isaac-sim && git clone https://github.com/<you>/<repo>.git isaac-studio
+cd /isaac-sim && git clone https://github.com/SoulResearch/isaac-studio.git isaac-studio
 cd isaac-studio && bash bootstrap/setup_brev.sh
 ```
 
@@ -141,7 +141,7 @@ cd isaac-studio && bash bootstrap/setup_brev.sh
   `setup_brev.sh` installs them; don't assume they're present.
 - **The mount bridge:** the container's `/isaac-sim/Documents` is the host's
   `~/docker/isaac-sim/data`. That mount is the ONLY way files cross from the
-  container to where `brev cp` (run on your Mac) can reach them. Anything in
+  container to where `brev cp` (run on your device) can reach them. Anything in
   container-only paths must be copied into `/isaac-sim/Documents` first.
 - **Run the container as `-u root`** (apt needs root) and detached with
   `-d -it` and NO `--rm` (so `exit` doesn't delete it).
