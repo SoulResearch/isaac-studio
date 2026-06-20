@@ -30,7 +30,8 @@ isaac-studio/
 │   └── h1_policy.py            # NVIDIA built-in validated H1 policy
 ├── environments/
 │   ├── studio.py               # clean stage + cinematic 3-point lighting
-│   └── office.py               # procedural office (walls, desks)
+│   ├── office.py               # procedural office (walls, desks)
+│   └── living_room.py          # warm procedural living room set
 ├── cameras/rigs.py             # CameraRig + presets
 └── shots/
     ├── h1_walk_studio.py       # H1 walks 1m, three-quarter cam
