@@ -1,0 +1,73 @@
+mdl 1.6;
+
+import ::math::*;
+import ::state::*;
+import ::tex::*;
+import ::anno::*;
+import ::scene::*;
+using OmniUe4Function import *;
+using OmniUe4Base import *;
+
+export annotation sampler_color();
+export annotation sampler_normal();
+export annotation sampler_grayscale();
+export annotation sampler_alpha();
+export annotation sampler_masks();
+export annotation sampler_distancefield();
+export annotation dither_masked_off();
+export annotation world_space_normal();
+
+export material MaterialInstanceDynamic_0(
+	float CubemapRotation = 0.0
+	[[
+		anno::display_name("CubemapRotation"),
+		anno::ui_order(32)
+	]],
+	uniform texture_cube HDRI_Cubemap = texture_cube("./Textures/DaylightAmbientCubemap.dds",::tex::gamma_srgb)
+	[[
+		anno::display_name("HDRI_Cubemap"),
+		anno::ui_order(32),
+		sampler_color()
+	]],
+	float HDRI_Contrast = 1.0
+	[[
+		anno::display_name("HDRI_Contrast"),
+		anno::ui_order(32)
+	]],
+	float HDRI_Brightness = 1.0
+	[[
+		anno::display_name("HDRI_Brightness"),
+		anno::ui_order(32)
+	]],
+	float4 HDRI_Tint = float4(1.0,1.0,1.0,1.0)
+	[[
+		anno::display_name("HDRI_Tint"),
+		anno::ui_order(32)
+	]])
+ = 
+	let {
+	float3 WorldPositionOffset_mdl = float3(0.0,0.0,0.0);
+
+
+
+	float Local0 = (CubemapRotation * 6.283185);
+	float3 Local1 = ::rotate_about_axis(float4(float3(0.0,0.0,1.0).x,float3(0.0,0.0,1.0).y,float3(0.0,0.0,1.0).z,Local0),float3(0.0,0.0,0.0),(::convert_to_left_hand(state::transform_point(state::coordinate_internal,state::coordinate_world,state::position()), true)*state::meters_per_scene_unit()*100.0));
+	float3 Local2 = (Local1 + (::convert_to_left_hand(state::transform_point(state::coordinate_internal,state::coordinate_world,state::position()), true)*state::meters_per_scene_unit()*100.0));
+	float3 Local3 = math::normalize(Local2);
+	float4 Local4 = tex::lookup_float4(HDRI_Cubemap,Local3);
+	float3 Local5 = math::pow(math::max(float3(Local4.x,Local4.y,Local4.z),float3(0.000001)),float3(HDRI_Contrast,HDRI_Contrast,HDRI_Contrast));
+	float3 Local6 = (Local5 * HDRI_Brightness);
+	float3 Local7 = (Local6 * float3(HDRI_Tint.x,HDRI_Tint.y,HDRI_Tint.z));
+
+	float3 EmissiveColor_mdl = Local7;
+	float OpacityMask_mdl = 1.0;
+	float SurfaceThickness_mdl = 0.01;
+	float Displacement_mdl = 0.0;
+
+	} in
+		::OmniUe4Base(
+			opacity: OpacityMask_mdl,
+			emissive_color: EmissiveColor_mdl,
+			displacement: WorldPositionOffset_mdl,
+			two_sided: false,
+			is_unlit: true);

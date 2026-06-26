@@ -1,0 +1,298 @@
+mdl 1.6;
+
+import ::math::*;
+import ::state::*;
+import ::tex::*;
+import ::anno::*;
+import ::scene::*;
+using OmniUe4Function import *;
+using OmniUe4Base import *;
+
+export annotation sampler_color();
+export annotation sampler_normal();
+export annotation sampler_grayscale();
+export annotation sampler_alpha();
+export annotation sampler_masks();
+export annotation sampler_distancefield();
+export annotation dither_masked_off();
+export annotation world_space_normal();
+
+export material MI_wood_white_01(
+	float offset_U = 0.0
+	[[
+		anno::display_name("offset_U"),
+		anno::ui_order(32),
+		anno::in_group("0.UVs")
+	]],
+	float Tile_U = 1.0
+	[[
+		anno::display_name("Tile_U"),
+		anno::ui_order(32),
+		anno::in_group("0.UVs")
+	]],
+	float Tile_V = 1.0
+	[[
+		anno::display_name("Tile_V"),
+		anno::ui_order(32),
+		anno::in_group("0.UVs")
+	]],
+	float UV_Rotate = 0.0
+	[[
+		anno::display_name("UV_Rotate"),
+		anno::ui_order(32),
+		anno::in_group("0.UVs")
+	]],
+	float offset_V = 0.0
+	[[
+		anno::display_name("offset_V"),
+		anno::ui_order(32),
+		anno::in_group("0.UVs")
+	]],
+	float NormalUV_scale = 1.0
+	[[
+		anno::display_name("NormalUV_scale"),
+		anno::ui_order(32),
+		anno::in_group("Normal")
+	]],
+	uniform texture_2d Normal_Texture = texture_2d("./Textures/test_grid_2_normal.png",::tex::gamma_linear)
+	[[
+		anno::display_name("Normal_Texture"),
+		anno::ui_order(32),
+		anno::in_group("Normal"),
+		sampler_normal()
+	]],
+	float Normal_Amount = 0.0
+	[[
+		anno::display_name("Normal_Amount"),
+		anno::ui_order(32),
+		anno::in_group("Normal")
+	]],
+	uniform texture_2d Bump_Texture = texture_2d("./Textures/DefaultTexture.png",::tex::gamma_srgb)
+	[[
+		anno::display_name("Bump_Texture"),
+		anno::ui_order(32),
+		anno::in_group("Normal"),
+		sampler_color()
+	]],
+	float BumpUV_scale = 1.0
+	[[
+		anno::display_name("BumpUV_scale"),
+		anno::ui_order(32),
+		anno::in_group("Normal")
+	]],
+	float Bump_Amount = 0.0
+	[[
+		anno::display_name("Bump_Amount"),
+		anno::ui_order(32),
+		anno::in_group("Normal")
+	]],
+	float4 Diffuse_Color = float4(0.5,0.5,0.5,1.0)
+	[[
+		anno::display_name("Diffuse_Color"),
+		anno::ui_order(32),
+		anno::in_group("Diffuse")
+	]],
+	float DiffuseUV_scale = 1.0
+	[[
+		anno::display_name("DiffuseUV_scale"),
+		anno::ui_order(32),
+		anno::in_group("Diffuse")
+	]],
+	uniform texture_2d Diffuse_Texture = texture_2d("./Textures/test_grid_2.png",::tex::gamma_srgb)
+	[[
+		anno::display_name("Diffuse_Texture"),
+		anno::ui_order(32),
+		anno::in_group("Diffuse"),
+		sampler_color()
+	]],
+	float dTexture_Contrast = 1.0
+	[[
+		anno::display_name("dTexture_Contrast"),
+		anno::ui_order(32),
+		anno::in_group("Diffuse")
+	]],
+	float dTex_Amount = 0.0
+	[[
+		anno::display_name("dTex_Amount"),
+		anno::ui_order(32),
+		anno::in_group("Diffuse")
+	]],
+	float4 Metallic_Color = float4(0.0,0.0,0.0,1.0)
+	[[
+		anno::display_name("Metallic_Color"),
+		anno::ui_order(32),
+		anno::in_group("Metallic")
+	]],
+	float MetallicUV_scale = 1.0
+	[[
+		anno::display_name("MetallicUV_scale"),
+		anno::ui_order(32),
+		anno::in_group("Metallic")
+	]],
+	uniform texture_2d Metallic_Texture = texture_2d("./Textures/test_grid_2.png",::tex::gamma_srgb)
+	[[
+		anno::display_name("Metallic_Texture"),
+		anno::ui_order(32),
+		anno::in_group("Metallic"),
+		sampler_color()
+	]],
+	float mTexture_Contrast = 1.0
+	[[
+		anno::display_name("mTexture_Contrast"),
+		anno::ui_order(32),
+		anno::in_group("Metallic")
+	]],
+	float mTex_Amount = 0.0
+	[[
+		anno::display_name("mTex_Amount"),
+		anno::ui_order(32),
+		anno::in_group("Metallic")
+	]],
+	float4 Specular_Color = float4(0.5,0.5,0.5,1.0)
+	[[
+		anno::display_name("Specular_Color"),
+		anno::ui_order(32),
+		anno::in_group("Specular")
+	]],
+	float SpecularUV_scale = 1.0
+	[[
+		anno::display_name("SpecularUV_scale"),
+		anno::ui_order(32),
+		anno::in_group("Specular")
+	]],
+	uniform texture_2d Specular_Texture = texture_2d("./Textures/test_grid_2.png",::tex::gamma_srgb)
+	[[
+		anno::display_name("Specular_Texture"),
+		anno::ui_order(32),
+		anno::in_group("Specular"),
+		sampler_color()
+	]],
+	float sTexture_Contrast = 1.0
+	[[
+		anno::display_name("sTexture_Contrast"),
+		anno::ui_order(32),
+		anno::in_group("Specular")
+	]],
+	float sTex_Amount = 0.0
+	[[
+		anno::display_name("sTex_Amount"),
+		anno::ui_order(32),
+		anno::in_group("Specular")
+	]],
+	float4 Roughness_Color = float4(0.2,0.2,0.2,1.0)
+	[[
+		anno::display_name("Roughness_Color"),
+		anno::ui_order(32),
+		anno::in_group("Roughness")
+	]],
+	float RoughnessUV_scale = 1.0
+	[[
+		anno::display_name("RoughnessUV_scale"),
+		anno::ui_order(32),
+		anno::in_group("Roughness")
+	]],
+	uniform texture_2d Roughness_Texture = texture_2d("./Textures/test_grid_2.png",::tex::gamma_srgb)
+	[[
+		anno::display_name("Roughness_Texture"),
+		anno::ui_order(32),
+		anno::in_group("Roughness"),
+		sampler_color()
+	]],
+	float rTexture_Contrast = 1.0
+	[[
+		anno::display_name("rTexture_Contrast"),
+		anno::ui_order(32),
+		anno::in_group("Roughness")
+	]],
+	float rTex_Amount = 0.0
+	[[
+		anno::display_name("rTex_Amount"),
+		anno::ui_order(32),
+		anno::in_group("Roughness")
+	]],
+	int MaxTexCoordIndex = 3
+	[[
+		anno::hidden()
+	]])
+ = 
+	let {
+	float3 WorldPositionOffset_mdl = float3(0.0,0.0,0.0);
+	float2 CustomizedUV0_mdl = float2(state::texture_coordinate(math::min(0,MaxTexCoordIndex)).x,1.0-state::texture_coordinate(math::min(0,MaxTexCoordIndex)).y);
+	float2 CustomizedUV1_mdl = float2(state::texture_coordinate(math::min(1,MaxTexCoordIndex)).x,1.0-state::texture_coordinate(math::min(1,MaxTexCoordIndex)).y);
+
+	float2 Local0 = (float2(0.5,0.5) * -1.0);
+	float2 Local1 = (CustomizedUV1_mdl * float2(float3(float2(Tile_U,Tile_V).x,float2(Tile_U,Tile_V).y,0.0).x,float3(float2(Tile_U,Tile_V).x,float2(Tile_U,Tile_V).y,0.0).y));
+	float2 Local2 = (Local0 + Local1);
+	float Local3 = (UV_Rotate / 360.0);
+	float Local4 = (Local3 * 6.283185);
+	float Local5 = math::cos(Local4);
+	float Local6 = math::sin(Local4);
+	float Local7 = (Local6 * -1.0);
+	float Local8 = math::dot(Local2, float2(Local5,Local7));
+	float Local9 = math::dot(Local2, float2(Local6,Local5));
+	float2 Local10 = (float2(0.5,0.5) + float2(Local8,Local9));
+	float Local11 = (offset_U + Local10.x);
+	float Local12 = (offset_V + Local10.y);
+	float2 Local13 = (float2(float3(float2(Local11,Local12).x,float2(Local11,Local12).y,0.0).x,float3(float2(Local11,Local12).x,float2(Local11,Local12).y,0.0).y) * NormalUV_scale);
+	float4 Local14 = ::unpack_normal_map(tex::lookup_float4(Normal_Texture,float2(Local13.x,1.0-Local13.y),tex::wrap_repeat,tex::wrap_repeat));
+	float3 Local15 = math::lerp(float3(0.0,0.0,1.0),float3(Local14.x,Local14.y,Local14.z),Normal_Amount);
+	float Local16 = (Local15.z + 1.0);
+	float2 Local17 = (float2(float3(float2(Local11,Local12).x,float2(Local11,Local12).y,0.0).x,float3(float2(Local11,Local12).x,float2(Local11,Local12).y,0.0).y) * BumpUV_scale);
+	float2 Local18 = (float2(0.005,0.0) + Local17);
+	float4 Local19 = tex::lookup_float4(Bump_Texture,float2(Local18.x,1.0-Local18.y),tex::wrap_repeat,tex::wrap_repeat);
+	float Local20 = math::dot(float4(float3(Local19.x,Local19.y,Local19.z).x,float3(Local19.x,Local19.y,Local19.z).y,float3(Local19.x,Local19.y,Local19.z).z,Local19.w), float4(1.0,0.0,0.0,0.0));
+	float4 Local21 = tex::lookup_float4(Bump_Texture,float2(Local17.x,1.0-Local17.y),tex::wrap_repeat,tex::wrap_repeat);
+	float Local22 = math::dot(float4(float3(Local21.x,Local21.y,Local21.z).x,float3(Local21.x,Local21.y,Local21.z).y,float3(Local21.x,Local21.y,Local21.z).z,Local21.w), float4(1.0,0.0,0.0,0.0));
+	float Local23 = (Local20 - Local22);
+	float Local24 = (Local23 * Bump_Amount);
+	float2 Local25 = (Local17 + float2(0.0,0.005));
+	float4 Local26 = tex::lookup_float4(Bump_Texture,float2(Local25.x,1.0-Local25.y),tex::wrap_repeat,tex::wrap_repeat);
+	float Local27 = math::dot(float4(float3(Local26.x,Local26.y,Local26.z).x,float3(Local26.x,Local26.y,Local26.z).y,float3(Local26.x,Local26.y,Local26.z).z,Local26.w), float4(1.0,0.0,0.0,0.0));
+	float Local28 = (Local27 - Local22);
+	float Local29 = (Bump_Amount * Local28);
+	float3 Local30 = math::cross(float3(float2(1.0,0.0).x,float2(1.0,0.0).y,Local24),float3(float2(0.0,1.0).x,float2(0.0,1.0).y,Local29));
+	float2 Local31 = (float2(Local30.x,Local30.y) * -1.0);
+	float Local32 = math::dot(float3(float2(Local15.x,Local15.y).x,float2(Local15.x,Local15.y).y,Local16), float3(Local31.x,Local31.y,Local30.z));
+	float3 Local33 = (float3(float2(Local15.x,Local15.y).x,float2(Local15.x,Local15.y).y,Local16) * Local32);
+	float3 Local34 = (Local16 * float3(Local31.x,Local31.y,Local30.z));
+	float3 Local35 = (Local33 - Local34);
+
+	float3 Normal_mdl = Local35;
+
+	float2 Local36 = (float2(float3(float2(Local11,Local12).x,float2(Local11,Local12).y,0.0).x,float3(float2(Local11,Local12).x,float2(Local11,Local12).y,0.0).y) * DiffuseUV_scale);
+	float4 Local37 = tex::lookup_float4(Diffuse_Texture,float2(Local36.x,1.0-Local36.y),tex::wrap_repeat,tex::wrap_repeat);
+	float3 Local38 = math::pow(math::max(float3(Local37.x,Local37.y,Local37.z),float3(0.000001)),float3(dTexture_Contrast,dTexture_Contrast,dTexture_Contrast));
+	float3 Local39 = math::lerp(float3(Diffuse_Color.x,Diffuse_Color.y,Diffuse_Color.z),Local38,dTex_Amount);
+	float2 Local40 = (float2(float3(float2(Local11,Local12).x,float2(Local11,Local12).y,0.0).x,float3(float2(Local11,Local12).x,float2(Local11,Local12).y,0.0).y) * MetallicUV_scale);
+	float4 Local41 = tex::lookup_float4(Metallic_Texture,float2(Local40.x,1.0-Local40.y),tex::wrap_repeat,tex::wrap_repeat);
+	float3 Local42 = math::pow(math::max(float3(Local41.x,Local41.y,Local41.z),float3(0.000001)),float3(mTexture_Contrast,mTexture_Contrast,mTexture_Contrast));
+	float3 Local43 = math::lerp(float3(Metallic_Color.x,Metallic_Color.y,Metallic_Color.z),Local42,mTex_Amount);
+	float2 Local44 = (float2(float3(float2(Local11,Local12).x,float2(Local11,Local12).y,0.0).x,float3(float2(Local11,Local12).x,float2(Local11,Local12).y,0.0).y) * SpecularUV_scale);
+	float4 Local45 = tex::lookup_float4(Specular_Texture,float2(Local44.x,1.0-Local44.y),tex::wrap_repeat,tex::wrap_repeat);
+	float3 Local46 = math::pow(math::max(float3(Local45.x,Local45.y,Local45.z),float3(0.000001)),float3(sTexture_Contrast,sTexture_Contrast,sTexture_Contrast));
+	float3 Local47 = math::lerp(float3(Specular_Color.x,Specular_Color.y,Specular_Color.z),Local46,sTex_Amount);
+	float2 Local48 = (float2(float3(float2(Local11,Local12).x,float2(Local11,Local12).y,0.0).x,float3(float2(Local11,Local12).x,float2(Local11,Local12).y,0.0).y) * RoughnessUV_scale);
+	float4 Local49 = tex::lookup_float4(Roughness_Texture,float2(Local48.x,1.0-Local48.y),tex::wrap_repeat,tex::wrap_repeat);
+	float3 Local50 = math::pow(math::max(float3(Local49.x,Local49.y,Local49.z),float3(0.000001)),float3(rTexture_Contrast,rTexture_Contrast,rTexture_Contrast));
+	float3 Local51 = math::lerp(float3(Roughness_Color.x,Roughness_Color.y,Roughness_Color.z),Local50,rTex_Amount);
+
+	float3 EmissiveColor_mdl = float3(0.0,0.0,0.0);
+	float OpacityMask_mdl = 1.0;
+	float3 BaseColor_mdl = Local39;
+	float Metallic_mdl = Local43.x;
+	float Specular_mdl = Local47.x;
+	float Roughness_mdl = Local51.x;
+	float SurfaceThickness_mdl = 0.01;
+	float Displacement_mdl = 0.0;
+
+	} in
+		::OmniUe4Base(
+			base_color: BaseColor_mdl,
+			metallic: Metallic_mdl,
+			roughness: Roughness_mdl,
+			specular: Specular_mdl,
+			normal: Normal_mdl,
+			opacity: OpacityMask_mdl,
+			emissive_color: EmissiveColor_mdl,
+			displacement: WorldPositionOffset_mdl,
+			two_sided: false);
