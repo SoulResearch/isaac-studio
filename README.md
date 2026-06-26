@@ -19,6 +19,8 @@ What this means in practice:
 - Code lives on GitHub (and your device). Never only on Brev.
 - Big binaries (USD assets, policies, MP4 outputs) are NOT in git (see
   `.gitignore`); they're regenerated or pulled on demand.
+- The apartment scene lives in `photorealistic_scenes/Apartment/scene_04.usd`
+  and is fetched with Git LFS during cold start.
 - A cold start is one command and ~14 minutes, mostly the Isaac Sim image pull.
 
 ---
@@ -53,9 +55,14 @@ isaac-studio/
 │   ├── living_room.py      # golden-hour living room (+ standalone preview)
 │   ├── studio.py           # clean stage + 3-point lighting
 │   ├── office.py           # procedural office
+│   ├── usd_scene.py        # default photoreal apartment environment
 │   └── README.md           # how to preview an environment
+├── photorealistic_scenes/
+│   └── Apartment/
+│       └── scene_04.usd    # default apartment USD scene (Git LFS)
 ├── cameras/rigs.py         # CameraRig + cinematic presets
 └── shots/
+    ├── apartment_walk.py
     ├── h1_walk_studio.py
     └── h1_walk_multiangle.py
 ```
@@ -83,8 +90,8 @@ brev shell <instance>          # land on the host as shadeform@shadecloud
 ### 2. Run the one-command cold start (on the Brev host)
 
 This pulls the Isaac Sim image, starts the container, installs system tools,
-clones the repo, installs the MP4 encoder, and verifies Isaac Sim + the H1
-policy:
+clones the repo, pulls the Git LFS apartment assets, installs the MP4 encoder,
+and verifies Isaac Sim + the H1 policy:
 
 ```bash
 curl -sSL https://raw.githubusercontent.com/SoulResearch/isaac-studio/main/bootstrap/coldstart.sh \
@@ -99,14 +106,14 @@ for `ISAAC SIM OK ...` and `H1 POLICY EXTENSION OK` near the end.
 ```bash
 docker exec -it isaac-sim bash
 cd /isaac-sim/isaac-studio
-/isaac-sim/python.sh environments/living_room.py
+/isaac-sim/python.sh shots/apartment_walk.py
 ```
 
 ### 4. Pull outputs to your device (in a NEW local terminal tab on your device)
 
 ```bash
-brev cp <instance>:~/docker/isaac-sim/data/living_room_preview_wide.png ~/Desktop/
-open ~/Desktop/living_room_preview_wide.png
+brev cp <instance>:~/docker/isaac-sim/data/apartment_walk.mp4 ~/Desktop/apartment_walk.mp4
+open ~/Desktop/apartment_walk.mp4
 ```
 
 ---
@@ -122,10 +129,11 @@ bash <(curl -sSL https://raw.githubusercontent.com/SoulResearch/isaac-studio/mai
 # 2. enter it
 docker exec -it isaac-sim bash
 
-# 3. inside the container: install git, clone, run setup
-apt-get update && apt-get install -y git ca-certificates
+# 3. inside the container: install git, clone, pull LFS assets, run setup
+apt-get update && apt-get install -y git git-lfs ca-certificates
 cd /isaac-sim && git clone https://github.com/SoulResearch/isaac-studio.git isaac-studio
-cd isaac-studio && bash bootstrap/setup_brev.sh
+cd /isaac-sim/isaac-studio && git lfs install && git lfs pull
+cd /isaac-sim/isaac-studio && bash bootstrap/setup_brev.sh
 ```
 
 ---
@@ -170,9 +178,11 @@ we use NVIDIA's built-in H1 policy now. This is what trims the cold start.
 
 ## Making a new video / environment
 
-- New environment: copy `environments/living_room.py`, edit geometry/materials,
-  keep the standalone preview block to render stills.
+- New environment: copy `environments/usd_scene.py` for USD scenes, or
+  `environments/living_room.py` / `studio.py` / `office.py` for procedural
+  scenes; keep the standalone preview block to render stills.
 - New video: copy a file in `shots/`, swap the env / robot command / camera.
+- Default video: `shots/apartment_walk.py`, which uses the apartment USD scene.
 - Preview any environment: see `environments/README.md` for the full sequence.
 
 ---

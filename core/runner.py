@@ -29,6 +29,14 @@ class Runner:
         self._world = World(stage_units_in_meters=1.0)
         # Environment adds ground + lighting + props
         self.environment.build(self._world)
+        # Some environments can suggest a better spawn point after they know
+        # their world-space bounds.
+        get_robot_spawn_position = getattr(
+            self.environment, "get_robot_spawn_position", None)
+        if callable(get_robot_spawn_position):
+            spawn_position = get_robot_spawn_position()
+            if spawn_position is not None and hasattr(self.robot, "position"):
+                self.robot.position = spawn_position
         # Robot adds its articulation + loads its policy
         self.robot.spawn(self._world)
         return self._world

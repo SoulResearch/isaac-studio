@@ -6,19 +6,27 @@
 # both of which ship in the base Isaac Sim container).
 #
 # A fresh Isaac Sim container is a bare Ubuntu base: no git, curl, wget, unzip,
-# vim. There is NO bare `python` or `pip` either -- Python is /isaac-sim/python.sh
-# and pip is `/isaac-sim/python.sh -m pip`. This script installs the common
-# system tools + the MP4 encoder, then verifies the two things we rely on.
+# vim, or git-lfs. There is NO bare `python` or `pip` either -- Python is
+# /isaac-sim/python.sh and pip is `/isaac-sim/python.sh -m pip`. This script
+# installs the common system tools + the MP4 encoder, then verifies the two
+# things we rely on.
 #
 # Usually invoked for you by bootstrap/coldstart.sh. To run by hand:
 #     bash bootstrap/setup_brev.sh
 set -e
 
-echo "[1/4] Installing common system tools (git curl wget unzip vim ca-certificates)..."
+echo "[1/4] Installing common system tools (git git-lfs curl wget unzip vim ca-certificates)..."
 apt-get update -qq
-apt-get install -y -qq git curl wget unzip vim ca-certificates
+apt-get install -y -qq git git-lfs curl wget unzip vim ca-certificates
 update-ca-certificates 2>/dev/null || true
 git --version
+
+if [ -d /isaac-sim/isaac-studio/.git ]; then
+    echo "[1b/4] Pulling Git LFS assets inside the repo..."
+    cd /isaac-sim/isaac-studio
+    git lfs install
+    git lfs pull
+fi
 
 echo "[2/4] Installing MP4 encoder backend (note: pip is python.sh -m pip)..."
 /isaac-sim/python.sh -m pip install --quiet imageio imageio-ffmpeg pillow || true
@@ -45,4 +53,4 @@ except Exception as e:
 app.close()
 " 2>/dev/null | tail -1
 
-echo "DONE. Preview an env:  /isaac-sim/python.sh environments/living_room.py"
+echo "DONE. Preview the default USD scene:  /isaac-sim/python.sh environments/usd_scene.py"

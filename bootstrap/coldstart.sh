@@ -58,14 +58,17 @@ echo "==> [3/4] Clone repo + run setup inside the container"
 # common tool set (curl, wget, unzip, vim, ...) is installed by setup_brev.sh.
 docker exec "${CONTAINER}" bash -c "
 set -e
-apt-get update -qq && apt-get install -y -qq git ca-certificates
+apt-get update -qq && apt-get install -y -qq git git-lfs ca-certificates
 update-ca-certificates 2>/dev/null || true
 if [ ! -d /isaac-sim/isaac-studio ]; then
     cd /isaac-sim && git clone ${REPO_URL} isaac-studio
 else
     cd /isaac-sim/isaac-studio && git pull --ff-only || true
 fi
-cd /isaac-sim/isaac-studio && bash bootstrap/setup_brev.sh
+cd /isaac-sim/isaac-studio
+git lfs install
+git lfs pull
+bash bootstrap/setup_brev.sh
 "
 
 echo "==> [4/4] Cold start complete."
@@ -73,4 +76,4 @@ echo ""
 echo "Next, enter the container and render:"
 echo "    docker exec -it ${CONTAINER} bash"
 echo "    cd /isaac-sim/isaac-studio"
-echo "    /isaac-sim/python.sh environments/living_room.py"
+echo "    /isaac-sim/python.sh shots/apartment_walk.py"
