@@ -19,47 +19,89 @@ Isaac Sim renames them, only this file changes.
 """
 
 from __future__ import annotations
+import inspect
 import numpy as np
 from robots.base_robot import BaseRobot
 
 
 class H1Robot(BaseRobot):
-    def __init__(self, prim_path: str = "/World/H1", position=(0.0, 0.0, 1.05)):
+    def __init__(self, prim_path: str = "/World/H1", position=(0.0, 0.0, 1.05),
+                 orientation=None):
         super().__init__()
         self.prim_path = prim_path
         self.position = np.array(position, dtype=float)
+        self.orientation = None if orientation is None else np.array(
+            orientation, dtype=float)
         self._h1 = None
         self._target_velocity = np.array([0.0, 0.0, 0.0])  # [vx, vy, wz]
         self._elapsed = 0.0
         self._walk_distance = None
         self._walk_speed = 0.8  # m/s default forward speed
+        self._walk_direction = np.array([1.0, 0.0, 0.0], dtype=float)
+
+    def _parse_walk_direction(self, value):
+        if isinstance(value, str):
+            mapping = {
+                "+x": np.array([1.0, 0.0, 0.0], dtype=float),
+                "-x": np.array([-1.0, 0.0, 0.0], dtype=float),
+                "+y": np.array([0.0, 1.0, 0.0], dtype=float),
+                "-y": np.array([0.0, -1.0, 0.0], dtype=float),
+            }
+            if value not in mapping:
+                raise ValueError(
+                    f"Unsupported walk_dir '{value}'. Expected one of {list(mapping)}")
+            return mapping[value]
+
+        direction = np.array(value, dtype=float)
+        if np.linalg.norm(direction[:2]) < 1e-9:
+            raise ValueError("walk_dir must have a non-zero x/y component.")
+        direction[2] = 0.0
+        return direction / np.linalg.norm(direction[:2])
 
     # ---- high-level command interface -------------------------------------
     def command(self, **kwargs):
         """Supported commands:
             walk_forward = <meters>   -> walk that far forward then stop
             speed        = <m/s>      -> forward speed to use
+            walk_dir     = +x|-x|+y|-y -> world-space heading for the walk
             velocity     = (vx,vy,wz) -> raw velocity command (advanced)
         """
         super().command(**kwargs)
         if "speed" in kwargs:
             self._walk_speed = float(kwargs["speed"])
+        if "walk_dir" in kwargs:
+            self._walk_direction = self._parse_walk_direction(kwargs["walk_dir"])
         if "walk_forward" in kwargs:
             self._walk_distance = float(kwargs["walk_forward"])
-            self._target_velocity = np.array([self._walk_speed, 0.0, 0.0])
+            self._target_velocity = self._walk_direction * self._walk_speed
         if "velocity" in kwargs:
             self._target_velocity = np.array(kwargs["velocity"], dtype=float)
+            if np.linalg.norm(self._target_velocity[:2]) > 1e-9:
+                self._walk_direction = self._target_velocity.copy()
+                self._walk_direction[2] = 0.0
+                self._walk_direction = self._walk_direction / np.linalg.norm(
+                    self._walk_direction[:2])
         return self
 
     # ---- lifecycle --------------------------------------------------------
     def spawn(self, world):
         """Add the H1 articulation + load the validated flat-terrain policy."""
         from isaacsim.robot.policy.examples.robots.h1 import H1FlatTerrainPolicy
-        self._h1 = H1FlatTerrainPolicy(
-            prim_path=self.prim_path,
-            name="H1",
-            position=self.position,
-        )
+        spawn_kwargs = {
+            "prim_path": self.prim_path,
+            "name": "H1",
+            "position": self.position,
+        }
+        signature = inspect.signature(H1FlatTerrainPolicy)
+        if self.orientation is not None and "orientation" in signature.parameters:
+            spawn_kwargs["orientation"] = self.orientation
+        self._h1 = H1FlatTerrainPolicy(**spawn_kwargs)
+        if self.orientation is not None and "orientation" not in signature.parameters:
+            if hasattr(self._h1, "set_world_pose"):
+                self._h1.set_world_pose(
+                    position=self.position,
+                    orientation=self.orientation,
+                )
         return self._h1
 
     def on_reset(self):

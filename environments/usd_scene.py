@@ -35,6 +35,12 @@ DEFAULT_HORIZONTAL_APERTURE = 20.955
 DEFAULT_PULLBACK_SCALE = 1.15
 DEFAULT_HEIGHT_SCALE = 0.20
 DEFAULT_ROBOT_HEIGHT = 1.05
+DEFAULT_SCENE_SCALE = 1.0
+DEFAULT_DOME_INTENSITY = 1000.0
+DEFAULT_INTERIOR_CAMERA_HEIGHT = 1.6
+
+_INSPECT_KEYWORDS = ("floor", "tiles", "sofa", "wall", "carpet", "table")
+_FLOOR_PRIORITIES = ("sm_floor_01", "sm_tiles_01")
 
 
 def _resolve_scene_path(scene_path: str | Path) -> Path:
@@ -56,6 +62,15 @@ def _is_git_lfs_pointer(scene_path: Path) -> bool:
 def _as_vec3(values) -> np.ndarray:
     return np.array([float(values[0]), float(values[1]), float(values[2])],
                     dtype=float)
+
+
+def _vec3_to_list(values) -> list[float]:
+    return [float(values[0]), float(values[1]), float(values[2])]
+
+
+def _prim_name_matches_keywords(prim) -> bool:
+    name = prim.GetName().lower()
+    return any(keyword in name for keyword in _INSPECT_KEYWORDS)
 
 
 def look_at_quat(eye, target):
@@ -88,6 +103,84 @@ def scene_bounds_from_prim(prim):
     center = (min_vec + max_vec) / 2.0
     diagonal = float(np.linalg.norm(max_vec - min_vec))
     return min_vec, max_vec, center, diagonal
+
+
+def find_floor_prim(scene_prim):
+    """Return the best floor-like prim under the referenced scene root."""
+
+    candidates = []
+
+    def _walk(prim):
+        prim_name = prim.GetName().lower()
+        exact_priority = 0 if any(
+            token in prim_name for token in _FLOOR_PRIORITIES
+        ) else 1 if any(
+            keyword in prim_name for keyword in ("floor", "tiles")
+        ) else None
+        if exact_priority is not None:
+            min_vec, max_vec, center, diagonal = scene_bounds_from_prim(prim)
+            candidates.append({
+                "prim": prim,
+                "priority": exact_priority,
+                "max_z": float(max_vec[2]),
+                "min_vec": min_vec,
+                "max_vec": max_vec,
+                "center": center,
+                "diagonal": diagonal,
+            })
+        for child in prim.GetChildren():
+            _walk(child)
+
+    _walk(scene_prim)
+
+    if not candidates:
+        return None
+
+    candidates.sort(key=lambda item: (item["priority"], -item["max_z"]))
+    return candidates[0]
+
+
+def _print_prim_hierarchy(prim, max_depth: int = 2, depth: int = 0):
+    indent = "  " * depth
+    min_vec, max_vec, center, diagonal = scene_bounds_from_prim(prim)
+    print(
+        f"[inspect] {indent}{prim.GetPath()} | {prim.GetTypeName() or 'Unknown'} "
+        f"| bbox min={_vec3_to_list(min_vec)} max={_vec3_to_list(max_vec)} "
+        f"center={_vec3_to_list(center)} diag={diagonal:.3f}"
+    )
+    if depth >= max_depth:
+        return
+    for child in prim.GetChildren():
+        _print_prim_hierarchy(child, max_depth=max_depth, depth=depth + 1)
+
+
+def print_scene_diagnostics(stage, scene_prim_path: str, max_depth: int = 2):
+    scene_prim = stage.GetPrimAtPath(scene_prim_path)
+    if not scene_prim or not scene_prim.IsValid():
+        raise RuntimeError(f"Scene prim does not exist: {scene_prim_path}")
+
+    print(f"[inspect] scene root: {scene_prim_path}")
+    _print_prim_hierarchy(scene_prim, max_depth=max_depth)
+
+    print("[inspect] keyword matches:")
+    found_match = False
+
+    def _walk_for_matches(prim):
+        nonlocal found_match
+        if _prim_name_matches_keywords(prim):
+            found_match = True
+            min_vec, max_vec, center, diagonal = scene_bounds_from_prim(prim)
+            print(
+                f"[inspect] MATCH {prim.GetPath()} | {prim.GetTypeName() or 'Unknown'} "
+                f"| bbox min={_vec3_to_list(min_vec)} max={_vec3_to_list(max_vec)} "
+                f"center={_vec3_to_list(center)} diag={diagonal:.3f}"
+            )
+        for child in prim.GetChildren():
+            _walk_for_matches(child)
+
+    _walk_for_matches(scene_prim)
+    if not found_match:
+        print("[inspect] (no floor/tiles/sofa/wall/carpet/table matches found)")
 
 
 def camera_eye_from_bounds(center, bounds_min, bounds_max,
@@ -136,7 +229,9 @@ class FramedCameraRig:
                  resolution=(1600, 900),
                  pullback_scale: float = DEFAULT_PULLBACK_SCALE,
                  height_scale: float = DEFAULT_HEIGHT_SCALE,
-                 direction=(1.0, -1.0, 0.0)):
+                 direction=(1.0, -1.0, 0.0),
+                 camera_mode: str = "auto",
+                 floor_top_z: float | None = None):
         self.center = _as_vec3(center)
         self.bounds_min = _as_vec3(bounds_min)
         self.bounds_max = _as_vec3(bounds_max)
@@ -147,21 +242,34 @@ class FramedCameraRig:
         self.pullback_scale = float(pullback_scale)
         self.height_scale = float(height_scale)
         self.direction = direction
+        self.camera_mode = camera_mode
+        self.floor_top_z = None if floor_top_z is None else float(floor_top_z)
         self.sensor = None
 
     def attach(self, world):
         from isaacsim.sensors.camera import Camera
         import omni.usd
 
-        eye = camera_eye_from_bounds(
-            self.center,
-            self.bounds_min,
-            self.bounds_max,
-            pullback_scale=self.pullback_scale,
-            height_scale=self.height_scale,
-            direction=self.direction,
-        )
-        quat = look_at_quat(eye, self.center)
+        if self.camera_mode == "interior":
+            eye = self.center.copy()
+            if self.floor_top_z is None:
+                eye[2] = self.center[2]
+            else:
+                eye[2] = self.floor_top_z + DEFAULT_INTERIOR_CAMERA_HEIGHT
+            target = eye + _as_vec3(self.direction)
+            target[2] = eye[2]
+        else:
+            eye = camera_eye_from_bounds(
+                self.center,
+                self.bounds_min,
+                self.bounds_max,
+                pullback_scale=self.pullback_scale,
+                height_scale=self.height_scale,
+                direction=self.direction,
+            )
+            target = self.center
+
+        quat = look_at_quat(eye, target)
         self.sensor = Camera(
             prim_path=self.prim_path,
             position=eye,
@@ -189,21 +297,38 @@ class USDSceneEnvironment:
     def __init__(self,
                  scene_path: str | Path = DEFAULT_SCENE,
                  scene_prim_path: str = DEFAULT_SCENE_PRIM_PATH,
-                 robot_height: float = DEFAULT_ROBOT_HEIGHT):
+                 robot_height: float = DEFAULT_ROBOT_HEIGHT,
+                 scene_scale: float = DEFAULT_SCENE_SCALE,
+                 add_ground_plane: bool = False,
+                 add_dome_light: bool = True,
+                 dome_intensity: float = DEFAULT_DOME_INTENSITY):
         self.scene_path = str(scene_path)
         self.scene_prim_path = scene_prim_path
         self.robot_height = float(robot_height)
+        self.scene_scale = float(scene_scale)
+        self.add_ground_plane = bool(add_ground_plane)
+        self.add_dome_light = bool(add_dome_light)
+        self.dome_intensity = float(dome_intensity)
         self._stage = None
         self._scene_prim = None
+        self.scene_bounds_min_pre_scale = None
+        self.scene_bounds_max_pre_scale = None
+        self.scene_center_pre_scale = None
+        self.scene_diagonal_pre_scale = None
         self.scene_bounds_min = None
         self.scene_bounds_max = None
         self.scene_center = None
         self.scene_diagonal = None
+        self.floor_prim_path = None
+        self.floor_bounds_min = None
+        self.floor_bounds_max = None
+        self.floor_center = None
+        self.floor_top_z = None
         self.robot_spawn_position = None
 
     def build(self, world):
         import omni.usd
-        from pxr import UsdGeom
+        from pxr import UsdGeom, Gf, UsdLux
 
         self._stage = omni.usd.get_context().get_stage()
         scene_path = _resolve_scene_path(self.scene_path)
@@ -220,22 +345,68 @@ class USDSceneEnvironment:
         scene_xform.GetPrim().GetReferences().AddReference(str(scene_path))
         self._scene_prim = scene_xform.GetPrim()
 
+        self.scene_bounds_min_pre_scale, self.scene_bounds_max_pre_scale, \
+            self.scene_center_pre_scale, self.scene_diagonal_pre_scale = \
+            scene_bounds_from_prim(self._scene_prim)
+
+        if abs(self.scene_scale - 1.0) > 1e-9:
+            UsdGeom.Xformable(self._scene_prim).AddScaleOp().Set(
+                Gf.Vec3f(self.scene_scale, self.scene_scale, self.scene_scale))
+
         self.scene_bounds_min, self.scene_bounds_max, self.scene_center, \
             self.scene_diagonal = scene_bounds_from_prim(self._scene_prim)
-        # Add a hidden support plane just below the apartment floor so the
-        # robot has reliable footing even if the imported scene lacks physics.
-        world.scene.add_default_ground_plane(
-            z_position=float(self.scene_bounds_min[2]) - 0.02)
+
+        floor_info = find_floor_prim(self._scene_prim)
+        if floor_info is not None:
+            self.floor_prim_path = str(floor_info["prim"].GetPath())
+            self.floor_bounds_min = floor_info["min_vec"]
+            self.floor_bounds_max = floor_info["max_vec"]
+            self.floor_center = floor_info["center"]
+            self.floor_top_z = float(floor_info["max_z"])
+            spawn_xy = self.floor_center[:2]
+        else:
+            self.floor_prim_path = None
+            self.floor_bounds_min = None
+            self.floor_bounds_max = None
+            self.floor_center = self.scene_center
+            self.floor_top_z = float(self.scene_bounds_min[2])
+            spawn_xy = self.scene_center[:2]
+
         self.robot_spawn_position = np.array([
-            float(self.scene_center[0]),
-            float(self.scene_center[1]),
-            float(self.scene_bounds_min[2]) + self.robot_height,
+            float(spawn_xy[0]),
+            float(spawn_xy[1]),
+            float(self.floor_top_z) + 0.05,
         ], dtype=float)
+
+        if self.add_ground_plane:
+            # Optional support plane for scenes that need a fallback collider.
+            world.scene.add_default_ground_plane(
+                z_position=float(self.scene_bounds_min[2]) - 0.02)
+
+        if self.add_dome_light:
+            dome_prim = self._stage.DefinePrim("/World/Lights/ApartmentDome",
+                                               "DomeLight")
+            dome = UsdLux.DomeLight(dome_prim)
+            dome.CreateIntensityAttr(self.dome_intensity)
+            dome.CreateColorAttr(Gf.Vec3f(1.0, 1.0, 1.0))
 
         print(f"[usd-scene] referenced {scene_path}")
         print(
-            f"[usd-scene] bounds center={self.scene_center.tolist()} "
-            f"diag={self.scene_diagonal:.3f}")
+            f"[usd-scene] pre-scale bounds center={self.scene_center_pre_scale.tolist()} "
+            f"diag={self.scene_diagonal_pre_scale:.3f}")
+        print(
+            f"[usd-scene] post-scale bounds center={self.scene_center.tolist()} "
+            f"diag={self.scene_diagonal:.3f} scale={self.scene_scale:.4f}")
+        if self.floor_prim_path is not None:
+            print(
+                f"[usd-scene] floor prim={self.floor_prim_path} "
+                f"top_z={self.floor_top_z:.3f} "
+                f"bbox min={self.floor_bounds_min.tolist()} "
+                f"max={self.floor_bounds_max.tolist()}")
+        else:
+            print(
+                f"[usd-scene] floor prim=<fallback scene bbox min-z> "
+                f"top_z={self.floor_top_z:.3f}")
         print(
             f"[usd-scene] robot spawn={self.robot_spawn_position.tolist()}")
 
@@ -250,6 +421,21 @@ class USDSceneEnvironment:
 
     def get_scene_diagonal(self):
         return self.scene_diagonal
+
+    def get_floor_prim_path(self):
+        return self.floor_prim_path
+
+    def get_floor_center(self):
+        return self.floor_center
+
+    def get_floor_top_z(self):
+        return self.floor_top_z
+
+    def inspect(self, max_depth: int = 2):
+        if self._stage is None or self._scene_prim is None:
+            raise RuntimeError("Environment must be built before inspect().")
+        print_scene_diagnostics(self._stage, self.scene_prim_path,
+                                max_depth=max_depth)
 
 
 if __name__ == "__main__":
