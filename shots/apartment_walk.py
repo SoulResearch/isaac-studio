@@ -34,6 +34,19 @@ WALK_DIR_VECTORS = {
     "-y": np.array([0.0, -1.0, 0.0], dtype=float),
 }
 
+FOCUS_PRESETS = {
+    "living_room": {
+        "camera_position": np.array([-2.5, -1.5, 1.6], dtype=float),
+        "camera_target": np.array([-2.5, 2.0, 1.0], dtype=float),
+        "fov_degrees": 60.0,
+    },
+    "room_center": {
+        "camera_position": np.array([0.5, -2.0, 1.7], dtype=float),
+        "camera_target": np.array([0.5, 2.0, 1.0], dtype=float),
+        "fov_degrees": 60.0,
+    },
+}
+
 
 class NullRobot:
     """No-op robot used for empty-scene renders."""
@@ -114,10 +127,15 @@ def parse_args():
         help="Convenience unit conversion for the scene root scale.",
     )
     parser.add_argument(
-        "--camera",
-        choices=("auto", "interior", "orbit"),
-        default="interior",
-        help="Camera placement mode for the apartment shot.",
+        "--focus",
+        choices=tuple(FOCUS_PRESETS) + ("auto",),
+        default="living_room",
+        help="Named interior camera focus preset.",
+    )
+    parser.add_argument(
+        "--floor-prim",
+        default="SM_floor_01_0",
+        help="Prim name used to locate the real apartment floor.",
     )
     dome_group = parser.add_mutually_exclusive_group()
     dome_group.add_argument(
@@ -165,11 +183,12 @@ def main():
     env = USDSceneEnvironment(
         scene_path=scene_path,
         scene_scale=scene_scale,
+        floor_prim_name=args.floor_prim,
         add_dome_light=args.add_dome_light,
         dome_intensity=args.dome_intensity,
     )
     robot = (
-        H1Robot(position=(0.0, 0.0, 1.05), orientation=robot_orientation)
+        H1Robot(position=(-2.5, 0.5, 0.05), orientation=robot_orientation)
         if args.with_robot
         else NullRobot()
     )
@@ -189,35 +208,55 @@ def main():
         return
 
     scene_min, scene_max = env.get_scene_bounds()
+    raw_scene_min, raw_scene_max = env.get_raw_scene_bounds()
     scene_center = env.get_scene_center()
     scene_diagonal = env.get_scene_diagonal()
-    floor_center = env.get_floor_center() if env.get_floor_center() is not None else scene_center
     floor_top_z = env.get_floor_top_z() if env.get_floor_top_z() is not None else float(scene_min[2])
     floor_prim_path = env.get_floor_prim_path()
+    focus_preset = FOCUS_PRESETS.get(args.focus)
+    if args.focus == "auto":
+        camera_position = None
+        camera_target = None
+        camera_mode = "auto"
+        fov_degrees = None
+    else:
+        camera_position = focus_preset["camera_position"]
+        camera_target = focus_preset["camera_target"]
+        camera_mode = "fixed"
+        fov_degrees = focus_preset["fov_degrees"]
 
     print(f"[shot] scene path: {scene_path}")
-    print(f"[shot] scene center: {scene_center.tolist()}")
-    print(f"[shot] scene diagonal: {scene_diagonal:.3f}")
+    print(f"[shot] raw scene bounds min={raw_scene_min.tolist()} max={raw_scene_max.tolist()}")
+    print(f"[shot] filtered scene bounds min={scene_min.tolist()} max={scene_max.tolist()}")
+    print(f"[shot] filtered scene center: {scene_center.tolist()}")
+    print(f"[shot] filtered scene diagonal: {scene_diagonal:.3f}")
     print(f"[shot] effective scene scale: {scene_scale:.4f} (units={args.units})")
     print(f"[shot] walk dir: {args.walk_dir} -> {walk_direction.tolist()}")
     print(f"[shot] floor prim used: {floor_prim_path or '<fallback scene bbox min-z>'}")
     print(f"[shot] floor top z: {floor_top_z:.3f}")
+    print(f"[shot] focus: {args.focus}")
+    if camera_position is not None:
+        print(f"[shot] camera position: {camera_position.tolist()}")
+        print(f"[shot] camera target: {camera_target.tolist()}")
+        print(f"[shot] camera fov degrees: {fov_degrees:.1f}")
     print(f"[shot] final robot spawn: {env.get_robot_spawn_position().tolist()}")
     if args.with_robot:
         print(f"[shot] robot position passed to H1: {np.array(robot.position, dtype=float).tolist()}")
     else:
         print("[shot] robot disabled; rendering empty apartment")
 
-    camera_center = floor_center if args.camera == "interior" else scene_center
     camera = FramedCameraRig(
-        center=camera_center,
+        center=scene_center,
         bounds_min=scene_min,
         bounds_max=scene_max,
         prim_path="/World/ApartmentCamera",
         resolution=(1600, 900),
         direction=walk_direction,
-        camera_mode=args.camera,
+        camera_mode=camera_mode,
         floor_top_z=floor_top_z,
+        camera_position=camera_position,
+        camera_target=camera_target,
+        fov_degrees=fov_degrees,
     )
 
     output_filename = args.output

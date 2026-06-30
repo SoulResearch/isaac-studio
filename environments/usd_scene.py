@@ -73,6 +73,10 @@ def _prim_name_matches_keywords(prim) -> bool:
     return any(keyword in name for keyword in _INSPECT_KEYWORDS)
 
 
+def _is_mesh_prim(prim) -> bool:
+    return prim.GetTypeName() == "Mesh"
+
+
 def look_at_quat(eye, target):
     import isaacsim.core.utils.numpy.rotations as rot_utils
 
@@ -105,16 +109,105 @@ def scene_bounds_from_prim(prim):
     return min_vec, max_vec, center, diagonal
 
 
-def find_floor_prim(scene_prim):
+def robust_scene_bounds_from_prim(scene_prim):
+    """Compute raw and outlier-resistant bounds from all mesh prims."""
+
+    mesh_entries = []
+
+    def _walk(prim):
+        if _is_mesh_prim(prim):
+            min_vec, max_vec, center, diagonal = scene_bounds_from_prim(prim)
+            mesh_entries.append({
+                "prim": prim,
+                "min_vec": min_vec,
+                "max_vec": max_vec,
+                "center": center,
+                "diagonal": diagonal,
+            })
+        for child in prim.GetChildren():
+            _walk(child)
+
+    _walk(scene_prim)
+
+    if not mesh_entries:
+        min_vec, max_vec, center, diagonal = scene_bounds_from_prim(scene_prim)
+        return {
+            "raw_min": min_vec,
+            "raw_max": max_vec,
+            "raw_center": center,
+            "raw_diagonal": diagonal,
+            "filtered_min": min_vec,
+            "filtered_max": max_vec,
+            "filtered_center": center,
+            "filtered_diagonal": diagonal,
+            "strategy": "fallback_root",
+            "mesh_count": 0,
+            "filtered_count": 0,
+        }
+
+    raw_min = np.min([entry["min_vec"] for entry in mesh_entries], axis=0)
+    raw_max = np.max([entry["max_vec"] for entry in mesh_entries], axis=0)
+    raw_center = (raw_min + raw_max) / 2.0
+    raw_diagonal = float(np.linalg.norm(raw_max - raw_min))
+
+    centers = np.stack([entry["center"] for entry in mesh_entries], axis=0)
+    percentile_min = np.percentile(centers, 5.0, axis=0)
+    percentile_max = np.percentile(centers, 95.0, axis=0)
+    percentile_mask = np.all(
+        (centers >= percentile_min) & (centers <= percentile_max), axis=1)
+    filtered_entries = [
+        entry for entry, keep in zip(mesh_entries, percentile_mask) if keep
+    ]
+    strategy = "percentile_5_95"
+
+    if len(filtered_entries) < max(3, int(len(mesh_entries) * 0.1)):
+        median = np.median(centers, axis=0)
+        sigma = np.std(centers, axis=0)
+        sigma = np.where(sigma < 1e-6, 1e-6, sigma)
+        sigma_mask = np.all(np.abs(centers - median) <= (3.0 * sigma), axis=1)
+        sigma_entries = [
+            entry for entry, keep in zip(mesh_entries, sigma_mask) if keep
+        ]
+        if sigma_entries:
+            filtered_entries = sigma_entries
+            strategy = "median_3sigma"
+
+    if not filtered_entries:
+        filtered_entries = mesh_entries
+        strategy = "all_meshes"
+
+    filtered_min = np.min([entry["min_vec"] for entry in filtered_entries], axis=0)
+    filtered_max = np.max([entry["max_vec"] for entry in filtered_entries], axis=0)
+    filtered_center = (filtered_min + filtered_max) / 2.0
+    filtered_diagonal = float(np.linalg.norm(filtered_max - filtered_min))
+
+    return {
+        "raw_min": raw_min,
+        "raw_max": raw_max,
+        "raw_center": raw_center,
+        "raw_diagonal": raw_diagonal,
+        "filtered_min": filtered_min,
+        "filtered_max": filtered_max,
+        "filtered_center": filtered_center,
+        "filtered_diagonal": filtered_diagonal,
+        "strategy": strategy,
+        "mesh_count": len(mesh_entries),
+        "filtered_count": len(filtered_entries),
+    }
+
+
+def find_floor_prim(scene_prim, floor_prim_name: str = "SM_floor_01_0"):
     """Return the best floor-like prim under the referenced scene root."""
 
     candidates = []
+    target_name = floor_prim_name.lower()
 
     def _walk(prim):
         prim_name = prim.GetName().lower()
-        exact_priority = 0 if any(
-            token in prim_name for token in _FLOOR_PRIORITIES
-        ) else 1 if any(
+        prim_path = str(prim.GetPath()).lower()
+        exact_priority = 0 if (
+            target_name == prim_name or target_name in prim_path
+        ) else 1 if any(token in prim_name for token in _FLOOR_PRIORITIES) else 2 if any(
             keyword in prim_name for keyword in ("floor", "tiles")
         ) else None
         if exact_priority is not None:
@@ -161,6 +254,21 @@ def print_scene_diagnostics(stage, scene_prim_path: str, max_depth: int = 2):
 
     print(f"[inspect] scene root: {scene_prim_path}")
     _print_prim_hierarchy(scene_prim, max_depth=max_depth)
+    bounds = robust_scene_bounds_from_prim(scene_prim)
+    print(
+        f"[inspect] raw mesh bounds min={_vec3_to_list(bounds['raw_min'])} "
+        f"max={_vec3_to_list(bounds['raw_max'])} "
+        f"center={_vec3_to_list(bounds['raw_center'])} "
+        f"diag={bounds['raw_diagonal']:.3f} "
+        f"meshes={bounds['mesh_count']}"
+    )
+    print(
+        f"[inspect] filtered mesh bounds ({bounds['strategy']}) min={_vec3_to_list(bounds['filtered_min'])} "
+        f"max={_vec3_to_list(bounds['filtered_max'])} "
+        f"center={_vec3_to_list(bounds['filtered_center'])} "
+        f"diag={bounds['filtered_diagonal']:.3f} "
+        f"meshes={bounds['filtered_count']}"
+    )
 
     print("[inspect] keyword matches:")
     found_match = False
@@ -231,7 +339,10 @@ class FramedCameraRig:
                  height_scale: float = DEFAULT_HEIGHT_SCALE,
                  direction=(1.0, -1.0, 0.0),
                  camera_mode: str = "auto",
-                 floor_top_z: float | None = None):
+                 floor_top_z: float | None = None,
+                 camera_position=None,
+                 camera_target=None,
+                 fov_degrees: float | None = None):
         self.center = _as_vec3(center)
         self.bounds_min = _as_vec3(bounds_min)
         self.bounds_max = _as_vec3(bounds_max)
@@ -244,13 +355,26 @@ class FramedCameraRig:
         self.direction = direction
         self.camera_mode = camera_mode
         self.floor_top_z = None if floor_top_z is None else float(floor_top_z)
+        self.camera_position = None if camera_position is None else _as_vec3(
+            camera_position)
+        self.camera_target = None if camera_target is None else _as_vec3(
+            camera_target)
+        self.fov_degrees = None if fov_degrees is None else float(fov_degrees)
+        if self.fov_degrees is not None:
+            self.focal_length = float(
+                self.horizontal_aperture /
+                (2.0 * np.tan(np.radians(self.fov_degrees) / 2.0))
+            )
         self.sensor = None
 
     def attach(self, world):
         from isaacsim.sensors.camera import Camera
         import omni.usd
 
-        if self.camera_mode == "interior":
+        if self.camera_position is not None and self.camera_target is not None:
+            eye = self.camera_position.copy()
+            target = self.camera_target.copy()
+        elif self.camera_mode == "interior":
             eye = self.center.copy()
             if self.floor_top_z is None:
                 eye[2] = self.center[2]
@@ -299,6 +423,7 @@ class USDSceneEnvironment:
                  scene_prim_path: str = DEFAULT_SCENE_PRIM_PATH,
                  robot_height: float = DEFAULT_ROBOT_HEIGHT,
                  scene_scale: float = DEFAULT_SCENE_SCALE,
+                 floor_prim_name: str = "SM_floor_01_0",
                  add_ground_plane: bool = False,
                  add_dome_light: bool = True,
                  dome_intensity: float = DEFAULT_DOME_INTENSITY):
@@ -306,15 +431,16 @@ class USDSceneEnvironment:
         self.scene_prim_path = scene_prim_path
         self.robot_height = float(robot_height)
         self.scene_scale = float(scene_scale)
+        self.floor_prim_name = floor_prim_name
         self.add_ground_plane = bool(add_ground_plane)
         self.add_dome_light = bool(add_dome_light)
         self.dome_intensity = float(dome_intensity)
         self._stage = None
         self._scene_prim = None
-        self.scene_bounds_min_pre_scale = None
-        self.scene_bounds_max_pre_scale = None
-        self.scene_center_pre_scale = None
-        self.scene_diagonal_pre_scale = None
+        self.raw_scene_bounds_min = None
+        self.raw_scene_bounds_max = None
+        self.raw_scene_center = None
+        self.raw_scene_diagonal = None
         self.scene_bounds_min = None
         self.scene_bounds_max = None
         self.scene_center = None
@@ -345,36 +471,37 @@ class USDSceneEnvironment:
         scene_xform.GetPrim().GetReferences().AddReference(str(scene_path))
         self._scene_prim = scene_xform.GetPrim()
 
-        self.scene_bounds_min_pre_scale, self.scene_bounds_max_pre_scale, \
-            self.scene_center_pre_scale, self.scene_diagonal_pre_scale = \
-            scene_bounds_from_prim(self._scene_prim)
-
         if abs(self.scene_scale - 1.0) > 1e-9:
             UsdGeom.Xformable(self._scene_prim).AddScaleOp().Set(
                 Gf.Vec3f(self.scene_scale, self.scene_scale, self.scene_scale))
 
-        self.scene_bounds_min, self.scene_bounds_max, self.scene_center, \
-            self.scene_diagonal = scene_bounds_from_prim(self._scene_prim)
+        robust_bounds = robust_scene_bounds_from_prim(self._scene_prim)
+        self.raw_scene_bounds_min = robust_bounds["raw_min"]
+        self.raw_scene_bounds_max = robust_bounds["raw_max"]
+        self.raw_scene_center = robust_bounds["raw_center"]
+        self.raw_scene_diagonal = robust_bounds["raw_diagonal"]
+        self.scene_bounds_min = robust_bounds["filtered_min"]
+        self.scene_bounds_max = robust_bounds["filtered_max"]
+        self.scene_center = robust_bounds["filtered_center"]
+        self.scene_diagonal = robust_bounds["filtered_diagonal"]
 
-        floor_info = find_floor_prim(self._scene_prim)
+        floor_info = find_floor_prim(self._scene_prim, self.floor_prim_name)
         if floor_info is not None:
             self.floor_prim_path = str(floor_info["prim"].GetPath())
             self.floor_bounds_min = floor_info["min_vec"]
             self.floor_bounds_max = floor_info["max_vec"]
             self.floor_center = floor_info["center"]
             self.floor_top_z = float(floor_info["max_z"])
-            spawn_xy = self.floor_center[:2]
         else:
             self.floor_prim_path = None
             self.floor_bounds_min = None
             self.floor_bounds_max = None
             self.floor_center = self.scene_center
             self.floor_top_z = float(self.scene_bounds_min[2])
-            spawn_xy = self.scene_center[:2]
 
         self.robot_spawn_position = np.array([
-            float(spawn_xy[0]),
-            float(spawn_xy[1]),
+            -2.5,
+            0.5,
             float(self.floor_top_z) + 0.05,
         ], dtype=float)
 
@@ -392,10 +519,10 @@ class USDSceneEnvironment:
 
         print(f"[usd-scene] referenced {scene_path}")
         print(
-            f"[usd-scene] pre-scale bounds center={self.scene_center_pre_scale.tolist()} "
-            f"diag={self.scene_diagonal_pre_scale:.3f}")
+            f"[usd-scene] raw mesh bounds center={self.raw_scene_center.tolist()} "
+            f"diag={self.raw_scene_diagonal:.3f}")
         print(
-            f"[usd-scene] post-scale bounds center={self.scene_center.tolist()} "
+            f"[usd-scene] filtered mesh bounds center={self.scene_center.tolist()} "
             f"diag={self.scene_diagonal:.3f} scale={self.scene_scale:.4f}")
         if self.floor_prim_path is not None:
             print(
@@ -415,6 +542,9 @@ class USDSceneEnvironment:
 
     def get_scene_bounds(self):
         return self.scene_bounds_min, self.scene_bounds_max
+
+    def get_raw_scene_bounds(self):
+        return self.raw_scene_bounds_min, self.raw_scene_bounds_max
 
     def get_scene_center(self):
         return self.scene_center
