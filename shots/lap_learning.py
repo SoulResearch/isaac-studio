@@ -186,11 +186,24 @@ def main():
     gc.GetHorizontalApertureAttr().Set(20.955)
 
     world.reset()
-    try:
-        h1.initialize()
-        h1.post_reset()
-    except Exception as e:
-        print(f"[lap] WARNING during robot init: {e}")
+
+    def init_robot():
+        """(Re)initialize the H1 against a fresh physics view. Must run after
+        every world.reset(), and only after the sim has stepped at least once
+        (the physics simulation view does not exist until then)."""
+        for _ in range(2):
+            world.step(render=False)
+        try:
+            h1.initialize()
+        except Exception as e:
+            print(f"[lap] ERROR in h1.initialize(): {e}")
+            raise
+        try:
+            h1.post_reset()
+        except Exception:
+            pass
+
+    init_robot()
 
     # Robust base-pose getter across API variants.
     def base_pose():
@@ -227,17 +240,21 @@ def main():
         with open(os.path.join(OUT, f"params_ep{ep}.json"), "w") as f:
             json.dump(params, f, indent=2)
 
-        # Reset episode
+        # Reset episode: world.reset() invalidates the robot's physics views,
+        # so a FULL re-initialize is required each episode (post_reset alone
+        # cannot rebuild the views -- this caused the ep-1 matmul crash).
         world.reset()
-        try:
-            h1.post_reset()
-        except Exception:
-            pass
+        init_robot()
         for _ in range(30):                       # settle
             try:
                 h1.forward(dt, np.zeros(3))
             except Exception as e:
                 print(f"[lap] robot forward() failed at settle: {e}")
+                try:
+                    p, q = base_pose()
+                    print(f"[lap] base pose at failure: pos={p.tolist()}")
+                except Exception as e2:
+                    print(f"[lap] base_pose also failed: {e2}")
                 app.close(); return
             world.step(render=True)
 
