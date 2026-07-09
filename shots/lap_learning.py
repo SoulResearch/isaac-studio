@@ -200,7 +200,7 @@ def main():
     # (y~-1.55); sightline to the lap rectangle crosses no wall extent.
     cam_eye = np.array([0.5, -1.3, 2.15])
     cam_target = np.array([-2.8, 0.2, 0.5])
-    cam = Camera(prim_path="/World/LapCam", position=cam_eye, frequency=25,
+    cam = Camera(prim_path="/World/LapCam", position=cam_eye,
                  resolution=(args.width, args.height_px),
                  orientation=look_quat(cam_eye, cam_target))
     cam.initialize()
