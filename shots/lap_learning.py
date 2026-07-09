@@ -172,7 +172,13 @@ def adapt(params, ep_summary):
 
 
 def main():
-    world = World(stage_units_in_meters=1.0)
+    # CRITICAL TIMING: the H1 flat-terrain policy is built for 200 Hz physics
+    # with rendering every 8th step (NVIDIA's h1_standalone.py reference uses
+    # exactly physics_dt=1/200, rendering_dt=8/200). Running it at the World
+    # default of 60 Hz makes the balance controller mistimed -> instant fall.
+    world = World(stage_units_in_meters=1.0,
+                  physics_dt=1.0 / 200.0,
+                  rendering_dt=8.0 / 200.0)
     stage = omni.usd.get_context().get_stage()
 
     # Scene
@@ -194,7 +200,7 @@ def main():
     # (y~-1.55); sightline to the lap rectangle crosses no wall extent.
     cam_eye = np.array([0.5, -1.3, 2.15])
     cam_target = np.array([-2.8, 0.2, 0.5])
-    cam = Camera(prim_path="/World/LapCam", position=cam_eye, frequency=args.fps,
+    cam = Camera(prim_path="/World/LapCam", position=cam_eye, frequency=25,
                  resolution=(args.width, args.height_px),
                  orientation=look_quat(cam_eye, cam_target))
     cam.initialize()
@@ -240,8 +246,9 @@ def main():
                     continue
         raise RuntimeError("Cannot read H1 base pose; paste this traceback to fix.")
 
-    dt = world.get_physics_dt()
-    steps_per_frame = max(int(round((1.0 / args.fps) / dt)), 1)
+    dt = 1.0 / 200.0                 # physics step (matches World above)
+    steps_per_frame = 8              # control/render at 25 Hz (8/200)
+    video_fps = 25
 
     params = json.loads(json.dumps(DEFAULT_PARAMS))
     csv_path = os.path.join(OUT, "metrics.csv")
@@ -262,7 +269,7 @@ def main():
         # cannot rebuild the views -- this caused the ep-1 matmul crash).
         world.reset()
         init_robot()
-        for _ in range(30):                       # settle
+        for i in range(200):                      # settle 1s at 200 Hz
             try:
                 h1.forward(dt, np.zeros(3))
             except Exception as e:
@@ -273,7 +280,7 @@ def main():
                 except Exception as e2:
                     print(f"[lap] base_pose also failed: {e2}")
                 app.close(); return
-            world.step(render=True)
+            world.step(render=(i % 8 == 7))
 
         fb_path = os.path.join(OUT, f"feedback_ep{ep}.jsonl")
         fb = open(fb_path, "w")
@@ -308,9 +315,9 @@ def main():
             wz = float(np.clip(params["turn_gain"] * err, -1.0, 1.0))
             cmd = np.array([vx, 0.0, wz])
 
-            for _ in range(steps_per_frame):
+            for i in range(steps_per_frame):
                 h1.forward(dt, cmd)
-                world.step(render=True)
+                world.step(render=(i == steps_per_frame - 1))
                 sim_t += dt; steps += 1
 
             # ---- typed feedback record (Sec IV.C) ----
@@ -370,7 +377,7 @@ def main():
 
         if record and frames:
             vp = os.path.join(OUT, f"lap_ep{ep}.mp4")
-            imageio.mimsave(vp, frames, fps=args.fps, codec="libx264", quality=8)
+            imageio.mimsave(vp, frames, fps=video_fps, codec="libx264", quality=8)
             print(f"[lap]   video -> {vp}")
 
         if args.learning == "on":
