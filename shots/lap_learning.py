@@ -92,7 +92,15 @@ import imageio.v2 as imageio
 # ------------------------- scene constants (from --inspect) ----------------
 TABLE_MIN = np.array([-3.02, 1.19]); TABLE_MAX = np.array([-2.15, 2.06])
 FLOOR_Z = 0.0
-SPAWN = np.array([-4.4, -0.9, 1.05])          # SW corner, standing height
+# SPAWN/lap audit vs wall bboxes: west wall SM_wall_16 = x[-4.58,-4.15];
+# mid wall SM_wall_04 starts at x=-0.74 (y~-0.26); south wall SM_wall_13 at
+# y~-1.55. The previous spawn x=-4.4 was INSIDE wall_16 -> robot ejected onto
+# the terrace ("spawned outside the window"). New rectangle sits fully in the
+# open living area with >=0.45m clearance on every side:
+#   west edge x=-3.6 (0.55m from wall_16), east edge x=-1.2 (0.46m from
+#   wall_04's west end), south edge y=-0.9 (0.65m from wall_13), north edge
+#   y=0.6 (0.59m from the table).
+SPAWN = np.array([-3.6, -0.9, 1.05])          # SW corner, inside the room
 LAP_TIMEOUT = args.timeout
 
 # ------------------------- learnable parameters ----------------------------
@@ -103,7 +111,8 @@ DEFAULT_PARAMS = {
     "turn_gain": 1.4,                          # heading P gain
 }
 SPEED_MAX, SPEED_MIN = 0.95, 0.30
-INSET_MAX = 0.35                               # keeps >=0.2m table clearance
+INSET_MAX = 0.20                               # north edge max pull; keeps
+                                               #   >=0.39m table clearance
 PROX_THRESH = 0.35                             # incident if closer to table
 VEL_ERR_THRESH = 0.35                          # incident if tracking error high
 PITCH_THRESH = 0.35                            # rad; instability incident
@@ -111,8 +120,16 @@ FALL_Z = 0.60
 
 
 def waypoints(params):
-    n = 0.60 + params["inset"]                # north edge y
-    return np.array([[-4.4, n], [-0.9, n], [-0.9, -0.9], [-4.4, -0.9]])
+    """Lap rectangle, fully inside the living area. Ordered so the FIRST
+    segment from the SW spawn heads +x (straight ahead of the robot's default
+    facing) -- no aggressive 90-degree turn at t=0."""
+    n = 0.60 + params["inset"]                # north edge y (toward table)
+    return np.array([
+        [-1.2, -0.9],                          # SE  (east along south edge)
+        [-1.2,  n],                            # NE  (north along east edge)
+        [-3.6,  n],                            # NW  (west along north edge)
+        [-3.6, -0.9],                          # SW  (south back to start)
+    ])
 
 
 def dist_to_table(p):
