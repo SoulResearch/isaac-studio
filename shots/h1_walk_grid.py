@@ -60,11 +60,16 @@ import isaacsim.core.utils.numpy.rotations as rot_utils
 from pxr import UsdGeom, UsdLux, Gf
 import imageio.v2 as imageio
 
-# --- identical walk geometry to h1_walk_home.py ------------------------------
+# --- walk geometry: east edge pulled to x=-1.5 (was -1.2). At waypoint 1 the
+# robot turns 90-deg left in an arc of radius speed/wz that BULGES EAST during
+# the turn; with the old corner the arc's easternmost point came within a few
+# cm of SM_wall_04's west end (x=-0.74, the kitchen counter) -- a coin-flip
+# clearance that run-to-run physics variance sometimes lost. New corner gives
+# ~0.5m of guaranteed arc clearance.
 SPAWN = np.array([-3.6, -0.9, 1.05])
 WAYPOINTS = np.array([
-    [-1.2, -0.9],
-    [-1.2,  0.6],
+    [-1.5, -0.9],
+    [-1.5,  0.6],
     [-3.6,  0.6],
     [-3.6, -0.9],
 ])
@@ -248,7 +253,7 @@ def main():
         desired = math.atan2(to_t[1], to_t[0])
         err = (desired - yaw + math.pi) % (2 * math.pi) - math.pi
         vx = args.speed * max(math.cos(err), 0.0)
-        wz = args.steer_sign * float(np.clip(args.turn_gain * err, -0.7, 0.7))
+        wz = args.steer_sign * float(np.clip(args.turn_gain * err, -0.85, 0.85))
         cmd = np.array([vx, 0.0, wz])
 
         aim_all(pos[:2])                       # keep robot centered, all views
