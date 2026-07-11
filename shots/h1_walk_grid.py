@@ -29,7 +29,11 @@ parser.add_argument("--laps", type=int, default=2)
 parser.add_argument("--speed", type=float, default=0.5)
 parser.add_argument("--turn-gain", type=float, default=1.2)
 parser.add_argument("--steer-sign", type=float, default=1.0)
-parser.add_argument("--dome-intensity", type=float, default=1400.0)
+parser.add_argument("--dome-intensity", type=float, default=2500.0)
+parser.add_argument("--sun-intensity", type=float, default=3000.0,
+                    help="warm directional sun through the west windows; 0 disables")
+parser.add_argument("--no-hdri", action="store_true",
+                    help="don't texture the dome with the scene's HDRI002.hdr")
 args = parser.parse_args()
 
 _repo = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -125,9 +129,29 @@ def main():
     except Exception as e:
         print(f"[grid] physics-scene scan skipped: {e}")
 
+    # ---- LIGHTING (the scene's own HDRI binding is broken, so we rebuild
+    # its intended daylight): HDRI-textured dome + warm sun + tunable levels.
     dome = UsdLux.DomeLight(stage.DefinePrim("/World/Dome", "DomeLight"))
     dome.CreateIntensityAttr(float(args.dome_intensity))
     dome.CreateColorAttr(Gf.Vec3f(1.0, 0.97, 0.92))
+    hdri_path = os.path.join(_repo, "photorealistic_scenes/Apartment/Materials/HDR/HDRI002.hdr")
+    if not args.no_hdri and os.path.exists(hdri_path):
+        dome.CreateTextureFileAttr(hdri_path)
+        print(f"[grid] dome textured with scene HDRI: {hdri_path}")
+    else:
+        print("[grid] plain dome (no HDRI texture)")
+
+    if args.sun_intensity > 0:
+        sun = UsdLux.DistantLight(stage.DefinePrim("/World/Sun", "DistantLight"))
+        sun.CreateIntensityAttr(float(args.sun_intensity))
+        sun.CreateColorAttr(Gf.Vec3f(1.0, 0.88, 0.68))   # warm daylight
+        sun.CreateAngleAttr(1.5)                          # soft shadow edges
+        sx = UsdGeom.Xformable(sun)
+        sx.ClearXformOpOrder()
+        # Low-ish from the west (the glass-door / terrace side), so light
+        # rakes into the living room like the SimReady promo shot.
+        sx.AddRotateXYZOp().Set(Gf.Vec3f(-38, -65, 0))
+        print(f"[grid] warm sun added, intensity {args.sun_intensity}")
 
     from isaacsim.robot.policy.examples.robots.h1 import H1FlatTerrainPolicy
     h1 = H1FlatTerrainPolicy(prim_path="/World/H1", name="H1", position=SPAWN.copy())
