@@ -30,6 +30,9 @@ parser.add_argument("--turn-gain", type=float, default=1.2)
 parser.add_argument("--steer-sign", type=float, default=1.0,
                     help="flip to -1 if the robot spins instead of steering")
 parser.add_argument("--dome-intensity", type=float, default=1400.0)
+parser.add_argument("--no-scene", action="store_true",
+                    help="DIAGNOSTIC: skip the apartment; spawn on a default "
+                         "ground plane (NVIDIA's known-good example condition)")
 args = parser.parse_args()
 
 _repo = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -95,12 +98,16 @@ def main():
                   physics_dt=PHYS_DT, rendering_dt=SUBSTEPS * PHYS_DT)
     stage = omni.usd.get_context().get_stage()
 
-    prim = stage.DefinePrim("/World/Apartment", "Xform")
-    prim.GetReferences().AddReference(scene_path)
+    if args.no_scene:
+        world.scene.add_default_ground_plane(z_position=0.0)
+        print("[walk] DIAGNOSTIC MODE: default ground plane, no apartment.")
+    else:
+        prim = stage.DefinePrim("/World/Apartment", "Xform")
+        prim.GetReferences().AddReference(scene_path)
+        print(f"[walk] scene referenced: {scene_path}")
     dome = UsdLux.DomeLight(stage.DefinePrim("/World/Dome", "DomeLight"))
     dome.CreateIntensityAttr(float(args.dome_intensity))
     dome.CreateColorAttr(Gf.Vec3f(1.0, 0.97, 0.92))
-    print(f"[walk] scene referenced: {scene_path}")
 
     from isaacsim.robot.policy.examples.robots.h1 import H1FlatTerrainPolicy
     h1 = H1FlatTerrainPolicy(prim_path="/World/H1", name="H1", position=SPAWN.copy())
@@ -124,6 +131,19 @@ def main():
         h1.post_reset()
     except Exception:
         pass
+    # NVIDIA's H1 example also seeds the articulation's default joint state
+    # from the policy's trained stance; without it the robot can start from a
+    # zero pose the policy was never trained to recover from.
+    try:
+        dp = getattr(h1, "default_pos", None)
+        if dp is not None and getattr(h1, "robot", None) is not None:
+            h1.robot.set_joints_default_state(dp)
+            h1.robot.post_reset()
+            print(f"[walk] default joint stance applied ({np.array(dp).shape})")
+        else:
+            print("[walk] WARNING: h1.default_pos not found; stance not seeded")
+    except Exception as e:
+        print(f"[walk] WARNING: could not set default joint state: {e}")
 
     def base_pose():
         for obj in (getattr(h1, "robot", None), h1):
